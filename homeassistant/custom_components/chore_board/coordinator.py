@@ -8,11 +8,12 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .chore import Chore, ChoreManager
 from .member import Member
-from .todo_store.base import Task
+from .todo_store.base import StoreChanges, Task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,19 +29,27 @@ class BoardState:
 
 
 class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
-    """Tracks chores, members, scores, and history."""
+    """Polls the todo store, detects completions, awards points."""
 
-    def __init__(self, hass: HomeAssistant, chore_mgr: ChoreManager, members: dict[str, Member]) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        chore_mgr: ChoreManager,
+        members: dict[str, Member],
+        poll_interval: timedelta = timedelta(minutes=2),
+    ) -> None:
         super().__init__(
             hass,
             _LOGGER,
             name="chore_board",
-            update_interval=timedelta(minutes=5),
+            update_interval=poll_interval,
         )
         self._chore_mgr = chore_mgr
         self._members = members
         self._scores: dict[str, int] = {mid: 0 for mid in members}
         self._history: list[dict[str, Any]] = []
+        self._pending_attribution: dict[str, Task] = {}  # task_id -> task awaiting member attribution
+        self._store = None  # set by __init__
 
     @property
     def chore_manager(self) -> ChoreManager:
@@ -50,25 +59,28 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
     def members(self) -> dict[str, Member]:
         return self._members
 
-    async def async_complete(self, chore_id: str, member_id: str) -> int:
-        """Complete a chore and award points. Returns points awarded."""
-        chore = self._chore_mgr.get(chore_id)
-        if not chore:
-            raise UpdateFailed(f"Chore {chore_id} not found")
+    @property
+    def pending(self) -> dict[str, Task]:
+        return dict(self._pending_attribution)
+
+    async def async_set_store(self, store: Any) -> None:
+        """Set the todo store reference (called from __init__.py)."""
+        self._store = store
+
+    async def async_complete(self, task_id: str, member_id: str) -> int:
+        """Manually complete a task and award points (for HA-initiated flow)."""
         if member_id not in self._members:
             raise UpdateFailed(f"Member {member_id} not found")
-        if not chore.active:
-            raise UpdateFailed(f"Chore {chore_id} is not active")
 
-        points = chore.points
+        chore = self._chore_mgr.get(task_id)
+        points = chore.points if chore else 10
+
         self._scores[member_id] = self._scores.get(member_id, 0) + points
-
         self._history.append({
-            "chore_id": chore_id,
-            "chore_title": chore.title,
+            "task_id": task_id,
             "member_id": member_id,
             "points": points,
-            "timestamp": str(self._async_now()),
+            "timestamp": self._now(),
         })
 
         await self.async_request_refresh()
@@ -80,29 +92,44 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
             raise UpdateFailed(f"Member {member_id} not found")
 
         self._scores[member_id] = self._scores.get(member_id, 0) + points
-
         self._history.append({
             "task_title": task_title,
             "member_id": member_id,
             "points": points,
-            "timestamp": str(self._async_now()),
+            "timestamp": self._now(),
         })
-
         await self.async_request_refresh()
 
-    async def async_ai_score(self, member_id: str, task_title: str, model: str, api_key: str | None) -> int:
-        """Use LLM to score a task, then log it."""
-        from .scoring import ai_score
-
-        points = await ai_score_task(task_title, model=model, api_key=api_key)
-        await self.async_log_task(member_id, task_title, points)
-        return points
-
-    def _async_now(self) -> str:
-        from datetime import datetime, timezone
-        return datetime.now(timezone.utc).isoformat()
-
     async def _async_update_data(self) -> BoardState:
+        """Core polling loop: detect changes, ask who did it."""
+        if not self._store:
+            return self._build_state()
+
+        try:
+            changes: StoreChanges = await self._store.poll()
+        except Exception as e:
+            _LOGGER.warning("Poll failed: %s", e)
+            return self._build_state()
+
+        # Handle newly completed tasks — ask who completed each
+        for task in changes.completed_tasks:
+            # Skip if already attributed
+            if task.id in self._pending_attribution:
+                continue
+            self._pending_attribution[task.id] = task
+            _LOGGER.info("Task completed: %s — awaiting attribution", task.title)
+
+        # Handle new tasks
+        for task in changes.new_tasks:
+            _LOGGER.info("New task detected: %s", task.title)
+
+        # Handle deletions
+        for task_id in changes.deleted_tasks:
+            self._pending_attribution.pop(task_id, None)
+
+        return self._build_state()
+
+    def _build_state(self) -> BoardState:
         return BoardState(
             chores=self._chore_mgr.chores,
             members=self._members,
@@ -119,9 +146,12 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
 
     @classmethod
     def from_dict(cls, hass: HomeAssistant, data: dict[str, Any], members: dict[str, Member]) -> "ChoreBoardCoordinator":
-        """Reconstruct coordinator from stored data."""
         chore_mgr = ChoreManager.from_dict(data.get("chores", {}))
         coord = cls(hass, chore_mgr, members)
         coord._scores = data.get("scores", {mid: 0 for mid in members})
         coord._history = data.get("history", [])
         return coord
+
+    def _now(self) -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()

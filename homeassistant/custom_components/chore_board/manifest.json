@@ -2,9 +2,10 @@
   "domain": "chore_board",
   "name": "Chore Board",
   "codeowners": [],
-  "dependencies": ["conversation"],
+  "dependencies": [],
   "documentation": "https://github.com/josh/chore-board",
-  "iot_class": "local_polling",
-  "requirements": [],
+  "issue_template": "https://github.com/josh/chore-board/issues",
+  "iot_class": "cloud_polling",
+  "requirements": ["todoist-api-python==2.1.0"],
   "version": "0.1.0"
 }
