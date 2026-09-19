@@ -1,5 +1,6 @@
 """Todo store abstraction."""
 
-from .base import TodoStore
+from .base import StoreChanges, Task, TodoStore
+from .ha_todos import HATodoStore
 
-__all__ = ["TodoStore"]
+__all__ = ["StoreChanges", "Task", "TodoStore", "HATodoStore"]

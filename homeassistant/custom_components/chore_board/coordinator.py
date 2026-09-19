@@ -8,7 +8,6 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .chore import Chore, ChoreManager
@@ -29,7 +28,7 @@ class BoardState:
 
 
 class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
-    """Polls the todo store, detects completions, awards points."""
+    """Polls the HA Todo List, detects completions, awards points."""
 
     def __init__(
         self,
@@ -49,7 +48,7 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
         self._scores: dict[str, int] = {mid: 0 for mid in members}
         self._history: list[dict[str, Any]] = []
         self._pending_attribution: dict[str, Task] = {}  # task_id -> task awaiting member attribution
-        self._store = None  # set by __init__
+        self._store = None  # set by __init__.py
 
     @property
     def chore_manager(self) -> ChoreManager:
@@ -113,7 +112,6 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
 
         # Handle newly completed tasks — ask who completed each
         for task in changes.completed_tasks:
-            # Skip if already attributed
             if task.id in self._pending_attribution:
                 continue
             self._pending_attribution[task.id] = task

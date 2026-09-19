@@ -7,13 +7,9 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .base import TodoStore
-from .local import LocalTodoStore
-from .todoist import TodoistTodoStore
-from ..const import STORE_LOCAL, STORE_TODOIST
+from .ha_todos import HATodoStore
 
 
-def create_store(hass: HomeAssistant, store_type: str, config: dict[str, Any] | None = None) -> TodoStore:
-    """Create a todo store instance based on type."""
-    if store_type == STORE_TODOIST:
-        return TodoistTodoStore(hass)
-    return LocalTodoStore(hass)
+def create_store(hass: HomeAssistant, todo_entity_id: str) -> TodoStore:
+    """Create the HA Todo List store."""
+    return HATodoStore(hass, todo_entity_id)

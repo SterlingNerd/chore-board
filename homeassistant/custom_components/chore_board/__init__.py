@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import storage
 
-from .chore import Chore, ChoreManager
+from .chore import ChoreManager
 from .const import STORAGE_KEY, STORAGE_VERSION
 from .coordinator import ChoreBoardCoordinator
 from .member import members_from_config
@@ -35,22 +35,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize chore manager
     chore_mgr = ChoreManager()
 
-    # Load persisted state (chores, scores, history)
+    # Load persisted state
     store = storage.Storage(hass, STORAGE_VERSION, STORAGE_KEY)
     saved = await store.async_load()
 
     if saved and saved.get("chores"):
-        # Restore from persisted state
         chore_mgr = ChoreManager.from_dict(saved["chores"])
         coordinator = ChoreBoardCoordinator.from_dict(hass, saved, members)
     else:
         coordinator = ChoreBoardCoordinator(hass, chore_mgr, members)
 
-    # Initialize todo store
-    todo_store = create_store(hass, data["store_type"], {"token": data.get("todoist_token", "")})
+    # Initialize todo store (HA Todo List)
+    todo_entity = data["todo_entity"]
+    todo_store = create_store(hass, todo_entity)
     await todo_store.initialize()
 
-    # Sync chores to todo store
+    # Sync chores to HA Todo List
     await todo_store.sync_with_chores(chore_mgr.to_dict())
 
     # Store references

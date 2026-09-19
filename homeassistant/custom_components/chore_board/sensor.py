@@ -1,13 +1,14 @@
-"""Score sensors for each member."""
+"""Sensors for Chore Board: per-member scores and leaderboard."""
 
 from __future__ import annotations
+
+from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import ChoreBoardCoordinator
-from .member import Member
 
 
 async def async_setup_entry(
@@ -28,11 +29,12 @@ class ScoreSensor(SensorEntity):
     """Sensor showing a member's total points."""
 
     _attr_has_entity_name = True
-    _attr_name = None  # show member name as entity name
+    _attr_name = None
 
     def __init__(self, coordinator: ChoreBoardCoordinator, member_id: str, name: str) -> None:
         self._coordinator = coordinator
         self._member_id = member_id
+        self._member_name = name
         self._attr_unique_id = f"{member_id}_score"
         self._attr_native_unit_of_measurement = "pts"
         self._attr_should_poll = False
@@ -40,6 +42,15 @@ class ScoreSensor(SensorEntity):
     @property
     def native_value(self) -> int | None:
         return self._coordinator.data.scores.get(self._member_id) if self._coordinator.data else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        history = [h for h in self._coordinator.data.task_history if h.get("member_id") == self._member_id]
+        return {
+            "member_id": self._member_id,
+            "name": self._member_name,
+            "recent_activity": history[-5:] if history else [],
+        }
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

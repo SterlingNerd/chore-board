@@ -1,14 +1,15 @@
 # Chore Board
 
-Gamified household chore tracker with a configurable todo store backend and Home Assistant integration.
+Gamified household chore tracker using HA's built-in Todo List as source of truth.
 
 ## Features
 
-- **Configurable stores** — local (default) or Todoist
+- **HA Todo List integration** — manage chores in HA's native Todo Lists UI
 - **Member management** — define household members with names and avatars
 - **Chore points** — assign point values to chores
+- **Leaderboard** — per-member score sensors
 - **"I did a thing"** — log ad-hoc tasks, optionally AI-scored
-- **Home Assistant native** — sensors, services, voice assistant ready
+- **Voice assistant ready** — triggers on todo.item_completed
 
 ## Installation (HACS)
 
@@ -23,28 +24,38 @@ Gamified household chore tracker with a configurable todo store backend and Home
 
 ## Manual Installation
 
-Copy the `homeassistant/custom_components/chore_board` directory to your HA config's `custom_components/` directory:
+Copy the `homeassistant/custom_components/chore_board` directory to your HA config's `custom_components/` directory.
 
-```bash
-mkdir -p ~/.homeassistant/custom_components/
-cp -r homeassistant/custom_components/chore_board ~/.homeassistant/custom_components/
-```
+## Setup
 
-Restart Home Assistant.
-
-## Configuration
-
-```yaml
-# Example: via UI after adding the integration
-# - Select store type (local or todoist)
-# - Provide Todoist token if using Todoist
-# - Add members as JSON: [{"id": "josh", "name": "Josh"}, {"id": "sarah", "name": "Sarah"}]
-```
+1. **Create a Todo List** in HA (Settings → Devices & Services → Todo Lists)
+   - Use any backend: Local to-do, Shopping List, etc.
+2. **Add Chore Board integration** and select your Todo List
+3. **Define members** as JSON:
+   ```json
+   [{"id": "josh", "name": "Josh"}, {"id": "sarah", "name": "Sarah"}]
+   ```
+4. **Add chores** via the `chore_board.assign_chore` service
 
 ## Services
 
-- `chore_board.assign_chore` — add a chore to the board
+- `chore_board.assign_chore` — add a chore to the Todo List
 - `chore_board.award_points` — attribute a completed task to a member
 - `chore_board.log_task` — log an ad-hoc "I did a thing"
 - `chore_board.ai_score` — use LLM to score an unlisted task
 - `chore_board.acknowledge` — dismiss a pending attribution request
+
+## Automation: Auto-attribute on completion
+
+```yaml
+alias: "Chore Board - detect completion"
+trigger:
+  - platform: event
+    event_type: todo.item_completed
+action:
+  - service: todo.get_items
+    data:
+      entity_id: todo.your_list
+    response_variable: completed
+  # Then use award_points service with the member who did it
+```

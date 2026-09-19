@@ -11,9 +11,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
+from .chore import Chore, ChoreManager
 from .const import DEFAULT_POINTS, SERVICE_AI_SCORE, SERVICE_ASSIGN_CHORE, SERVICE_LOG_TASK
 from .coordinator import ChoreBoardCoordinator
-from .todo_store.base import Task
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ SCHEMA_AI_SCORE = vol.Schema({
 })
 
 SCHEMA_ACKNOWLEDGE = vol.Schema({
-    vol.Optional("member_id"): cv.string,  # if None, skips attribution
+    vol.Required("task_id"): cv.string,
 })
 
 
@@ -56,14 +56,13 @@ async def async_setup_services(hass: HomeAssistant, entry: ConfigEntry) -> None:
         data = call.data
         try:
             points = await coordinator.async_complete(data["task_id"], data["member_id"])
-            # Remove from pending attribution
             coordinator._pending_attribution.pop(data["task_id"], None)
         except Exception as e:
             return {"status": "error", "message": str(e)}
         return {"status": "awarded", "points": points}
 
     async def handle_assign(call: ServiceCall) -> dict[str, Any]:
-        """Add a chore (synced to todo store)."""
+        """Add a chore to the Todo List."""
         data = call.data
         chore_mgr = coordinator.chore_manager
         chore_mgr.add(
@@ -93,15 +92,10 @@ async def async_setup_services(hass: HomeAssistant, entry: ConfigEntry) -> None:
         return {"status": "scored", "points": points}
 
     async def handle_acknowledge(call: ServiceCall) -> dict[str, Any]:
-        """Acknowledge/drop a pending attribution request."""
-        data = call.data
-        task_id = call.context.id or "unknown"  # not reliable, use pending list
-        # Find matching pending task
-        for tid, task in list(coordinator._pending_attribution.items()):
-            if task.title.lower() in call.data.get("task_title", "").lower() or tid == call.data.get("task_id", ""):
-                coordinator._pending_attribution.pop(tid, None)
-                break
-        return {"status": "acknowledged"}
+        """Dismiss a pending attribution request."""
+        task_id = call.data["task_id"]
+        coordinator._pending_attribution.pop(task_id, None)
+        return {"status": "dismissed"}
 
     hass.services.async_register("chore_board", "award_points", handle_award, schema=SCHEMA_AWARD)
     hass.services.async_register("chore_board", SERVICE_ASSIGN_CHORE, handle_assign, schema=SCHEMA_ASSIGN)
@@ -116,6 +110,3 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove("chore_board", SERVICE_LOG_TASK)
     hass.services.async_remove("chore_board", SERVICE_AI_SCORE)
     hass.services.async_remove("chore_board", "acknowledge")
-
-
-from .chore import Chore
