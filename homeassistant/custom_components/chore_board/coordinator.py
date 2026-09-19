@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .chore import Chore, ChoreManager
 from .member import Member
+from .scoring import LLMConfig, ai_score_task
 from .todo_store.base import StoreChanges, Task
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
         hass: HomeAssistant,
         chore_mgr: ChoreManager,
         members: dict[str, Member],
+        llm_config: LLMConfig | None = None,
         poll_interval: timedelta = timedelta(minutes=2),
     ) -> None:
         super().__init__(
@@ -45,6 +47,7 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
         )
         self._chore_mgr = chore_mgr
         self._members = members
+        self._llm_config = llm_config or LLMConfig()
         self._scores: dict[str, int] = {mid: 0 for mid in members}
         self._history: list[dict[str, Any]] = []
         self._pending_attribution: dict[str, Task] = {}  # task_id -> task awaiting member attribution
@@ -57,6 +60,14 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
     @property
     def members(self) -> dict[str, Member]:
         return self._members
+
+    @property
+    def llm_config(self) -> LLMConfig:
+        return self._llm_config
+
+    @llm_config.setter
+    def llm_config(self, config: LLMConfig) -> None:
+        self._llm_config = config
 
     @property
     def pending(self) -> dict[str, Task]:
@@ -98,6 +109,24 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
             "timestamp": self._now(),
         })
         await self.async_request_refresh()
+
+    async def async_ai_score(self, member_id: str, task_title: str) -> int:
+        """Use LLM to score a task, then log it."""
+        if member_id not in self._members:
+            raise UpdateFailed(f"Member {member_id} not found")
+
+        points = await ai_score_task(task_title, config=self._llm_config)
+        await self.async_log_task(member_id, task_title, points)
+        return points
+
+    async def async_adjust_chore_points(self, chore_id: str, new_points: int) -> bool:
+        """Adjust points for a chore."""
+        chore = self._chore_mgr.get(chore_id)
+        if not chore:
+            return False
+        chore.points = new_points
+        await self.async_request_refresh()
+        return True
 
     async def _async_update_data(self) -> BoardState:
         """Core polling loop: detect changes, ask who did it."""
@@ -143,9 +172,15 @@ class ChoreBoardCoordinator(DataUpdateCoordinator[BoardState]):
         }
 
     @classmethod
-    def from_dict(cls, hass: HomeAssistant, data: dict[str, Any], members: dict[str, Member]) -> "ChoreBoardCoordinator":
+    def from_dict(
+        cls,
+        hass: HomeAssistant,
+        data: dict[str, Any],
+        members: dict[str, Member],
+        llm_config: LLMConfig | None = None,
+    ) -> "ChoreBoardCoordinator":
         chore_mgr = ChoreManager.from_dict(data.get("chores", {}))
-        coord = cls(hass, chore_mgr, members)
+        coord = cls(hass, chore_mgr, members, llm_config)
         coord._scores = data.get("scores", {mid: 0 for mid in members})
         coord._history = data.get("history", [])
         return coord

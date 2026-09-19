@@ -14,13 +14,14 @@ from .chore import ChoreManager
 from .const import STORAGE_KEY, STORAGE_VERSION
 from .coordinator import ChoreBoardCoordinator
 from .member import members_from_config
+from .scoring import LLMConfig
 from .services import async_setup_services, async_unload_services
 from .todo_store.factory import create_store
+from .websocket import async_register_websocket
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor"]
-CARD_PATH = "kiosk-card/dist/chore-board-card.js"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -34,6 +35,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize members
     members = members_from_config(data["members"])
 
+    # Initialize LLM config
+    llm_config = LLMConfig(
+        base_url=data.get("llm_base_url", ""),
+        api_key=data.get("llm_api_key", ""),
+        model=data.get("llm_model", "gpt-4o-mini"),
+    )
+
     # Initialize chore manager
     chore_mgr = ChoreManager()
 
@@ -43,9 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if saved and saved.get("chores"):
         chore_mgr = ChoreManager.from_dict(saved["chores"])
-        coordinator = ChoreBoardCoordinator.from_dict(hass, saved, members)
+        coordinator = ChoreBoardCoordinator.from_dict(hass, saved, members, llm_config)
     else:
-        coordinator = ChoreBoardCoordinator(hass, chore_mgr, members)
+        coordinator = ChoreBoardCoordinator(hass, chore_mgr, members, llm_config)
 
     # Initialize todo store (HA Todo List)
     todo_entity = data["todo_entity"]
@@ -59,12 +67,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data["coordinator"] = coordinator
     hass.data["todo_store"] = todo_store
 
+    # Register websocket commands
+    await async_register_websocket(hass)
+
     # Register services
     await async_setup_services(hass, entry)
 
-    # Register Lovelace card resource
+    # Register Lovelace resources
     if async_is_component_loading(hass, "lovelace"):
-        await _register_card(hass)
+        await _register_resources(hass, entry)
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -74,17 +85,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def _register_card(hass: HomeAssistant) -> None:
-    """Register the kiosk card as a Lovelace resource."""
-    from homeassistant.components.frontend import async_register_built_in_panel
-
-    # The card should be served as a static resource
-    # Users add it to Lovelace via:
-    # resources:
-    #   - url: /local/custom-lovelace/chore-board-card.js
-    #     type: module
-    _LOGGER.info("Chore Board card available — add to Lovelace resources:")
-    _LOGGER.info("  /local/custom-lovelace/chore-board-card.js")
+async def _register_resources(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Register Lovelace resources (kiosk card + admin panel)."""
+    _LOGGER.info("Chore Board resources registered")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
