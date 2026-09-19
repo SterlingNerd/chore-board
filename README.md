@@ -5,9 +5,10 @@ Gamified household chore tracker using HA's built-in Todo List as source of trut
 ## Features
 
 - **HA Todo List integration** — manage chores in HA's native Todo Lists UI
-- **Member management** — define household members with names and avatars
+- **Member management** — define household members with HA user + Todoist accounts
 - **Chore points** — assign point values to chores
 - **Leaderboard** — per-member score sensors
+- **Kiosk card** — custom Lovelace card for task completion with attribution
 - **"I did a thing"** — log ad-hoc tasks, optionally AI-scored
 - **Voice assistant ready** — triggers on todo.item_completed
 
@@ -28,14 +29,53 @@ Copy the `homeassistant/custom_components/chore_board` directory to your HA conf
 
 ## Setup
 
-1. **Create a Todo List** in HA (Settings → Devices & Services → Todo Lists)
-   - Use any backend: Local to-do, Shopping List, etc.
-2. **Add Chore Board integration** and select your Todo List
-3. **Define members** as JSON:
+### 1. Create a Todo List
+
+Use HA's built-in Todo List (Settings → Devices & Services → Todo Lists) or any backend.
+
+### 2. Add Chore Board Integration
+
+1. Add the integration via **Settings → Devices & Services → Add Integration**
+2. Select your Todo List entity
+3. Define members as JSON:
    ```json
-   [{"id": "josh", "name": "Josh"}, {"id": "sarah", "name": "Sarah"}]
+   [
+     {"id": "josh", "name": "Josh", "ha_user_id": "abc123", "todoist_username": "josh"},
+     {"id": "sarah", "name": "Sarah", "ha_user_id": "def456", "todoist_username": "sarah"}
+   ]
    ```
-4. **Add chores** via the `chore_board.assign_chore` service
+
+### 3. Install the Kiosk Card
+
+Build the card:
+```bash
+cd homeassistant/custom_components/chore_board/kiosk-card
+npm install
+npm run build
+```
+
+Copy the built card to your HA config:
+```bash
+mkdir -p ~/.homeassistant/www/custom-lovelace
+cp dist/chore-board-card.js ~/.homeassistant/www/custom-lovelace/
+```
+
+Add to Lovelace resources (Configuration → Lovelace Dashboards → Resources):
+```yaml
+url: /local/custom-lovelace/chore-board-card.js
+type: module
+```
+
+### 4. Add Chores
+
+Via service call:
+```yaml
+service: chore_board.assign_chore
+data:
+  chore_id: chore_dishes
+  title: Wash the dishes
+  points: 10
+```
 
 ## Services
 
@@ -45,7 +85,25 @@ Copy the `homeassistant/custom_components/chore_board` directory to your HA conf
 - `chore_board.ai_score` — use LLM to score an unlisted task
 - `chore_board.acknowledge` — dismiss a pending attribution request
 
-## Automation: Auto-attribute on completion
+## Kiosk Card Usage
+
+Add to a Lovelace dashboard:
+```yaml
+type: custom:chore-board-card
+entity: todo.chore_list
+title: Household Chores
+refresh_interval: 30
+```
+
+The card shows:
+- Current HA user's name
+- All pending chores
+- ✓ button to complete tasks
+- Popup if user is not a known member (asks who completed it)
+
+## Automation: Auto-attribute on kiosk completion
+
+The kiosk card handles attribution automatically. For voice/other completions, use:
 
 ```yaml
 alias: "Chore Board - detect completion"
@@ -55,7 +113,7 @@ trigger:
 action:
   - service: todo.get_items
     data:
-      entity_id: todo.your_list
+      entity_id: todo.chore_list
     response_variable: completed
   # Then use award_points service with the member who did it
 ```

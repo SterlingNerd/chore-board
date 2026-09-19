@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import storage
+from homeassistant.setup import async_is_component_loading
 
 from .chore import ChoreManager
 from .const import STORAGE_KEY, STORAGE_VERSION
@@ -19,6 +20,7 @@ from .todo_store.factory import create_store
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor"]
+CARD_PATH = "kiosk-card/dist/chore-board-card.js"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -60,12 +62,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services
     await async_setup_services(hass, entry)
 
+    # Register Lovelace card resource
+    if async_is_component_loading(hass, "lovelace"):
+        await _register_card(hass)
+
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     return True
+
+
+async def _register_card(hass: HomeAssistant) -> None:
+    """Register the kiosk card as a Lovelace resource."""
+    from homeassistant.components.frontend import async_register_built_in_panel
+
+    # The card should be served as a static resource
+    # Users add it to Lovelace via:
+    # resources:
+    #   - url: /local/custom-lovelace/chore-board-card.js
+    #     type: module
+    _LOGGER.info("Chore Board card available — add to Lovelace resources:")
+    _LOGGER.info("  /local/custom-lovelace/chore-board-card.js")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

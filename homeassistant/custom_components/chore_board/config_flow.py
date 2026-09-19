@@ -16,12 +16,12 @@ from .const import DEFAULT_LLM_MODEL
 
 _LOGGER = logging.getLogger(__name__)
 
-STEP_MEMBERS = vol.Schema({
-    vol.Required("members_json", default="[]"): str,
-})
-
 STEP_TODO = vol.Schema({
     vol.Required("todo_entity"): str,
+})
+
+STEP_MEMBERS = vol.Schema({
+    vol.Required("members_json", default="[]"): str,
 })
 
 
@@ -31,21 +31,21 @@ class ChoreBoardConfigFlow(config_entries.ConfigFlow, domain="chore_board"):
     VERSION = 1
 
     def __init__(self) -> None:
+        self._todo_entity: str = ""
         self._members: list[dict[str, Any]] = []
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is None:
             return await self._show_todo_form()
-        return await self.async_step_members(user_input)
+        self._todo_entity = user_input["todo_entity"]
+        return await self.async_step_members()
 
     async def _show_todo_form(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Show form to select a Todo List entity."""
         errors: dict[str, str] = {}
         if user_input:
             self._todo_entity = user_input["todo_entity"]
             return await self.async_step_members()
 
-        # Get available todo entities
         entity_registry = await self.hass.helpers.entity_registry.async_get_registry()
         todo_entities = [
             (e.entity_id, e.name or e.entity_id)
