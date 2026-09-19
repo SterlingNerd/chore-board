@@ -1,0 +1,10 @@
+{
+  "domain": "chore_board",
+  "name": "Chore Board",
+  "codeowners": [],
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/josh/chore-board",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}
