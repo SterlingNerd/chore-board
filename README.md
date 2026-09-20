@@ -1,153 +1,119 @@
 # Chore Board
 
-Gamified household chore tracker using HA's built-in Todo List as source of truth.
+Gamified household chore tracker using HA's built-in Todo List as source of truth. Home Assistant is the scoring/attribution layer — tasks are managed in HA's native Todo Lists UI.
 
-## Features
+---
 
-- **HA Todo List integration** — manage chores in HA's native Todo Lists UI
-- **Member management** — define household members with HA user + Todoist accounts
-- **Chore points** — assign point values to chores, adjustable per chore
-- **Leaderboard** — per-member score sensors
-- **Kiosk card** — custom Lovelace card for task completion with attribution
-- **Admin panel** — manage chores, members, and LLM config (admin only)
-- **"I did a thing"** — log ad-hoc tasks, optionally AI-scored
-- **Configurable LLM** — OpenAI-compatible API with fallback
+## Completed Features
 
-## Installation (HACS)
+### 1. Task Source of Truth — HA Todo List
+- Uses `todo.get_items`, `todo.add_item`, `todo.remove_item` services
+- Polls for changes (new tasks, completions, deletions)
+- Backend-agnostic: works with any HA Todo List integration
+- Tasks managed in HA's native Todo Lists dashboard or via services
 
-1. Open HACS in Home Assistant
-2. Go to **Integrations** → **Explore & Add Repositories**
-3. Search for "Chore Board" or add this repository:
-   ```
-   https://github.com/josh/chore-board
-   ```
-4. Install and restart Home Assistant
-5. Add the integration via **Settings → Devices & Services → Add Integration**
+### 2. Members = HA Users
+- Members are Home Assistant user accounts — no separate IDs or names
+- Configured by selecting HA users in the config flow
+- Each member can optionally link an **external account** (e.g., Todoist username) for future task sync
+- No `member_id` field — the HA user ID is the identifier
 
-## Manual Installation
+### 3. Chore Management
+- Chores defined with: `id`, `title`, `points`, `assigned_to`, `active`
+- Synced to HA Todo List via `assign_chore` service
+- Points adjustable per chore (for correcting auto-weighting mistakes)
+- Persisted in HA storage
 
-Copy the `homeassistant/custom_components/chore_board` directory to your HA config's `custom_components/` directory.
+### 4. Leaderboard
+- Per-member `sensor.chore_board_{member}_score` entities
+- Shows total points in HA dashboard
+- Attributes include recent activity history
+- **Kiosk card also displays leaderboard** — customized view if current user is a participant
 
-## Setup
+### 5. Kiosk Card (`custom:chore-board-card`)
+- Shows current HA user's name in header
+- Lists pending chores with ✓ completion buttons
+- **Auto-attribution**: if user is a known participant, points awarded immediately
+- **Popup for unknown users**: "Who completed this?" with participant selection buttons
+- Displays leaderboard if current user is a participant
+- Configurable refresh interval
 
-### 1. Create a Todo List
+### 6. Admin Panel (`custom:chore-board-admin`, admin-only)
+- **Chores tab**: edit points for each chore
+- **Participants tab**: select HA users, link external accounts (Todoist, etc.)
+- **LLM Config tab**: configure base URL, API key, model
 
-Use HA's built-in Todo List (Settings → Devices & Services → Todo Lists) or any backend.
+### 7. LLM Scoring (Configurable)
+- `LLMConfig` with `base_url`, `api_key`, `model`
+- OpenAI-compatible API (works with any chat completions endpoint)
+- Falls back to 10 points on failure
+- Used by `ai_score` service for ad-hoc task scoring
 
-### 2. Add Chore Board Integration
+### 8. "I Did a Thing" — Ad-hoc Task Logging
+- `log_task` service: manually log a task and award points
+- `ai_score` service: LLM scores an unlisted task description, then logs it
 
-1. Add the integration via **Settings → Devices & Services → Add Integration**
-2. Select your Todo List entity
-3. Configure LLM (optional): base URL, API key, model
-4. Define members as JSON:
-   ```json
-   [
-     {"id": "josh", "name": "Josh", "ha_user_id": "abc123", "todoist_username": "josh"},
-     {"id": "sarah", "name": "Sarah", "ha_user_id": "def456", "todoist_username": "sarah"}
-   ]
-   ```
+### 9. Attribution Flow
+- Coordinator polls todo store for completions
+- Completed tasks go into "pending attribution" state
+- `award_points` service: attribute a task to a participant (HA user)
+- `acknowledge` service: dismiss a pending attribution
+- Kiosk card handles attribution automatically when user is a known participant
 
-### 3. Install the Cards
-
-Build the cards:
-```bash
-cd homeassistant/custom_components/chore_board/kiosk-card
-npm install && npm run build
-
-cd ../admin-panel
-npm install && npm run build
-```
-
-Copy to your HA config:
-```bash
-mkdir -p ~/.homeassistant/www/custom-lovelace
-cp kiosk-card/dist/chore-board-card.js admin-panel/dist/chore-board-admin.js ~/.homeassistant/www/custom-lovelace/
-```
-
-Add to Lovelace resources (Configuration → Lovelace Dashboards → Resources):
-```yaml
-url: /local/custom-lovelace/chore-board-card.js
-type: module
-url: /local/custom-lovelace/chore-board-admin.js
-type: module
-```
-
-### 4. Add the Admin Panel
-
-Add to a dashboard (HA admin only):
-```yaml
-type: custom:chore-board-admin
-```
-
-### 5. Add Chores
-
-Via service call:
-```yaml
-service: chore_board.assign_chore
-data:
-  chore_id: chore_dishes
-  title: Wash the dishes
-  points: 10
-```
-
-## Admin Panel
-
-The admin panel (admin-only) provides:
-
-- **Chores tab**: Edit points for each chore
-- **Members tab**: Link HA users and Todoist accounts
-- **LLM Config tab**: Configure OpenAI-compatible API (base_url, api_key, model)
+---
 
 ## Services
 
-- `chore_board.assign_chore` — add a chore to the Todo List
-- `chore_board.award_points` — attribute a completed task to a member
-- `chore_board.adjust_chore_points` — change points for a chore
-- `chore_board.update_member` — update member links (HA user, Todoist)
-- `chore_board.update_llm_config` — update LLM configuration
-- `chore_board.log_task` — log an ad-hoc "I did a thing"
-- `chore_board.ai_score` — use LLM to score an unlisted task
-- `chore_board.acknowledge` — dismiss a pending attribution request
+| Service | Purpose |
+|---------|---------|
+| `chore_board.assign_chore` | Add chore to Todo List |
+| `chore_board.award_points` | Attribute completed task to participant |
+| `chore_board.adjust_chore_points` | Change points for a chore |
+| `chore_board.log_task` | Log ad-hoc task with points |
+| `chore_board.ai_score` | LLM-score ad-hoc task, then log |
+| `chore_board.acknowledge` | Dismiss pending attribution |
 
-## Kiosk Card Usage
+---
 
-Add to a Lovelace dashboard:
-```yaml
-type: custom:chore-board-card
-entity: todo.chore_list
-title: Household Chores
-refresh_interval: 30
+## Planned / Out of Scope
+
+### Voice Integration — **Out of Scope**
+User explicitly excluded this. Would have involved conversation intents for "Josh did the dishes" style commands.
+
+### What's Next (If Desired)
+
+1. **Build the cards** — `npm install && npm run build` in kiosk-card/ and admin-panel/
+2. **Lovelace dashboard recipe** — pre-built dashboard YAML with kiosk + leaderboard + admin
+3. **Streaks / bonuses** — daily/weekly bonus points for consistency
+4. **Chore templates** — predefined chore library users can add
+5. **Additional store backends** — if users want other Todo List backends
+6. **Notification integration** — push notifications when tasks are completed
+7. **History/reports** — per-member stats, completion rates, etc.
+
+---
+
+## Architecture
+
+```
+HA Todo List ←→ HATodoStore (polls get_items)
+                    ↓
+            ChoreBoardCoordinator
+                    ↓
+    ┌───────────────┼───────────────┐
+    ↓               ↓               ↓
+Score Sensors   Kiosk Card     Admin Panel
+(leaderboard)   (attribution  (chore/participant/LLM)
+                + leaderboard)
 ```
 
-The card shows:
-- Current HA user's name
-- All pending chores
-- ✓ button to complete tasks
-- Popup if user is not a known member (asks who completed it)
+**Data flow:**
+1. Tasks live in HA Todo List (any backend)
+2. Coordinator polls → detects completions
+3. Kiosk card attributes to HA user → awards points
+4. Sensors update leaderboard
+5. Admin panel manages everything (chores, participants, LLM config)
 
-## LLM Configuration
-
-Configure in the admin panel or via config flow:
-
-- **Base URL**: OpenAI-compatible API endpoint (e.g., `https://api.openai.com/v1`)
-- **API Key**: Your API key
-- **Model**: Model name (e.g., `gpt-4o-mini`)
-
-Fallback: If the LLM call fails, scoring defaults to 10 points.
-
-## Automation: Auto-attribute on kiosk completion
-
-The kiosk card handles attribution automatically. For voice/other completions, use:
-
-```yaml
-alias: "Chore Board - detect completion"
-trigger:
-  - platform: event
-    event_type: todo.item_completed
-action:
-  - service: todo.get_items
-    data:
-      entity_id: todo.chore_list
-    response_variable: completed
-  # Then use award_points service with the member who did it
-```
+**Participants = HA Users:**
+- Selected by HA user ID in config
+- Optionally linked to external accounts (Todoist, etc.)
+- Used for kiosk attribution and leaderboard display
